@@ -1,0 +1,11 @@
+# Optional: run with: docker compose --env-file .env.production up -d
+# Create .env.production on the server with POSTGRES_*, LOGIN_*, SESSION_SECRET
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.production
+    restart: unless-stopped
