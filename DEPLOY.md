@@ -65,7 +65,7 @@ docker build -t adspark-app .
 docker run -d \
   --name adspark \
   --restart unless-stopped \
-  -p 3000:3000 \
+  -p 3011:3011 \
   --env-file .env.production \
   adspark-app
 ```
@@ -96,7 +96,7 @@ server {
     server_name adspark.indicrm.io;
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3011;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -135,7 +135,7 @@ Follow the prompts. Certbot will adjust the Nginx config for HTTPS and auto-rene
 |------|--------|
 | View logs | `docker logs -f adspark` (or `docker compose logs -f app`) |
 | Restart app | `docker restart adspark` |
-| Rebuild and run (Option A) | `docker build -t adspark-app . && docker stop adspark && docker rm adspark && docker run -d --name adspark --restart unless-stopped -p 3000:3000 --env-file .env.production adspark-app` |
+| Rebuild and run (Option A) | `docker build -t adspark-app . && docker stop adspark && docker rm adspark && docker run -d --name adspark --restart unless-stopped -p 3011:3011 --env-file .env.production adspark-app` |
 | Rebuild and run (Option B) | `docker compose --env-file .env.production up -d --build` |
 | Stop app | `docker stop adspark` or `docker compose down` |
 
