@@ -189,7 +189,7 @@ function CreatePostModal({ onClose, onSuccess, onError }) {
     setSubmitting(true);
     const payload = isAi
       ? {
-          post_topic: topic.trim().slice(0, 100),
+          post_topic: topic.trim().slice(0, 200),
           generate_image: generateImage,
           text_only_image: generateImage ? textOnlyImage : false,
           theme,
@@ -263,19 +263,19 @@ function CreatePostModal({ onClose, onSuccess, onError }) {
             <>
               <div>
                 <label htmlFor="create-topic" className="block text-sm font-medium text-zinc-700">
-                  Topic <span className="text-zinc-400">(max 100 characters)</span>
+                  Topic <span className="text-zinc-400">(max 200 characters)</span>
                 </label>
                 <textarea
                   id="create-topic"
                   value={topic}
-                  onChange={(e) => setTopic(e.target.value.slice(0, 100))}
-                  maxLength={100}
+                  onChange={(e) => setTopic(e.target.value.slice(0, 200))}
+                  maxLength={200}
                   rows={3}
                   placeholder="e.g. Boost your business with Inventory CRM Solutions"
                   className="mt-1 w-full resize-y rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 outline-none focus:border-[#0a66c2] focus:ring-1 focus:ring-[#0a66c2]"
                   required={activeTab === "ai"}
                 />
-                <p className="mt-0.5 text-right text-xs text-zinc-400">{topic.length}/100</p>
+                <p className="mt-0.5 text-right text-xs text-zinc-400">{topic.length}/200</p>
               </div>
               <div>
                 <label htmlFor="create-theme" className="block text-sm font-medium text-zinc-700">
@@ -708,11 +708,23 @@ export default function PostsGrid({ posts: initialPosts }) {
   const [postToApprove, setPostToApprove] = useState(null);
   const [approvingId, setApprovingId] = useState(null);
   const [resultModal, setResultModal] = useState(null);
-  const [activeTab, setActiveTab] = useState("all");
+  const [activeTab, setActiveTab] = useState("draft");
   const [postToDelete, setPostToDelete] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [refreshLoading, setRefreshLoading] = useState(false);
+
+  // Load posts on mount (e.g. after login when page is client-navigated and RSC payload may be empty)
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/posts")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data)) setPosts(data);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const draftPosts = posts.filter((p) => !isPostPublished(p));
   const publishedPosts = posts.filter(isPostPublished);
@@ -912,9 +924,9 @@ export default function PostsGrid({ posts: initialPosts }) {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-200">
         <nav className="-mb-px flex gap-1" aria-label="Post categories">
           {[
-            { id: "all", label: "All", count: posts.length },
             { id: "draft", label: "Draft", count: draftPosts.length },
             { id: "published", label: "Published", count: publishedPosts.length },
+            { id: "all", label: "All", count: posts.length },
           ].map((tab) => (
             <button
               key={tab.id}
