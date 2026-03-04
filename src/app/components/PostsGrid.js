@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faLinkedinIn, faXTwitter } from "@fortawesome/free-brands-svg-icons";
+import { faLinkedinIn, faXTwitter, faInstagram } from "@fortawesome/free-brands-svg-icons";
 import { faTimes, faPaperPlane, faTrash, faPlus, faArrowsRotate } from "@fortawesome/free-solid-svg-icons";
 
 const APPROVE_WEBHOOK_URL = "https://n8n.indicrm.io/webhook/approve-post";
@@ -19,12 +19,14 @@ const THEME_OPTIONS = [
 const SOCIAL_PLATFORMS = [
   { id: "linkedin", label: "LinkedIn", icon: faLinkedinIn },
   { id: "x", label: "X", icon: faXTwitter },
+  { id: "instagram", label: "Instagram", icon: faInstagram },
 ];
 
 const CHANNEL_STYLES = {
   linkedin: { icon: faLinkedinIn, bg: "#0a66c2" },
   x: { icon: faXTwitter, bg: "#000000" },
   twitter: { icon: faXTwitter, bg: "#000000" },
+  instagram: { icon: faInstagram, bg: "#E4405F" },
 };
 
 function getChannelIcon(channel) {
