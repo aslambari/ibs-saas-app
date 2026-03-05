@@ -21,7 +21,7 @@ export async function getSocialMediaPosts() {
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `SELECT id, keyword, ai_research_output, generated_image_url, social_media_channel, status, scheduled_post_time, posted_at, posted_by, created_at, updated_at
+      `SELECT id, keyword, ai_research_output_linkedin, ai_research_output_x, ai_research_output_instagram, generated_image_url, social_media_channel, status, scheduled_post_time, posted_at, posted_by, created_at, updated_at
        FROM public.social_media_posts
        ORDER BY created_at DESC`
     );
@@ -35,7 +35,7 @@ export async function getSocialMediaPostById(id) {
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `SELECT id, keyword, ai_research_output, generated_image_url, social_media_channel, status, scheduled_post_time, posted_at, posted_by, created_at, updated_at
+      `SELECT id, keyword, ai_research_output_linkedin, ai_research_output_x, ai_research_output_instagram, generated_image_url, social_media_channel, status, scheduled_post_time, posted_at, posted_by, created_at, updated_at
        FROM public.social_media_posts
        WHERE id = $1`,
       [id]

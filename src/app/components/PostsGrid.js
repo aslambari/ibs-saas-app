@@ -39,6 +39,36 @@ function getChannelBg(channel) {
   return CHANNEL_STYLES[c]?.bg ?? CHANNEL_STYLES.linkedin.bg;
 }
 
+const CHANNEL_IDS = ["linkedin", "x", "instagram"];
+
+function normalizeChannelKey(raw) {
+  const c = (raw || "").toLowerCase().trim();
+  if (c === "x" || c === "twitter") return "x";
+  if (c === "instagram") return "instagram";
+  if (c === "linkedin") return "linkedin";
+  return null;
+}
+
+/** Parse comma-separated social_media_channel into array of normalized channel ids (linkedin, x, instagram). */
+function getPostChannels(post) {
+  const raw = post?.social_media_channel || "";
+  if (!raw.trim()) return ["linkedin"];
+  return raw
+    .split(",")
+    .map((s) => normalizeChannelKey(s))
+    .filter(Boolean);
+}
+
+function getPostContentForChannel(post, channelKey) {
+  const key = channelKey && CHANNEL_IDS.includes(channelKey) ? channelKey : "linkedin";
+  return post?.[`ai_research_output_${key}`] ?? "";
+}
+
+function getPostContent(post, channelKey) {
+  const key = channelKey || (getPostChannels(post)[0] ?? "linkedin");
+  return getPostContentForChannel(post, key);
+}
+
 function ConfirmModal({
   title = "Confirm",
   message,
@@ -483,13 +513,43 @@ function ShimmerCard() {
   );
 }
 
+function ChannelPills({ channels, activeChannel, onSelect }) {
+  const labels = { linkedin: "LinkedIn", x: "X", instagram: "Instagram" };
+  return (
+    <div className="flex items-center gap-1 rounded-lg bg-zinc-100 p-1" role="tablist" aria-label="Social platform version">
+      {channels.map((ch) => (
+        <button
+          key={ch}
+          type="button"
+          role="tab"
+          aria-selected={activeChannel === ch}
+          onClick={() => onSelect(ch)}
+          className={`flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md transition-all ${
+              activeChannel === ch
+              ? "bg-white text-white shadow-sm"
+              : "text-zinc-500 hover:bg-zinc-200 hover:text-zinc-700"
+          }`}
+          style={activeChannel === ch ? { backgroundColor: getChannelBg(ch) } : {}}
+          title={labels[ch] || ch}
+        >
+          <FontAwesomeIcon icon={getChannelIcon(ch)} className="h-4 w-4" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function PostCard({ post, onMoreClick, onApprove, onDelete, isApproving, isDeleting }) {
-  const content = post.ai_research_output || "";
+  const channels = getPostChannels(post);
+  const [activeChannel, setActiveChannel] = useState(channels[0] ?? "linkedin");
+  useEffect(() => {
+    if (channels.length && !channels.includes(activeChannel)) setActiveChannel(channels[0]);
+  }, [channels.join(","), activeChannel]);
+  const content = getPostContentForChannel(post, activeChannel) || "";
   const imageUrl = post.generated_image_url || null;
-  const channel = post.social_media_channel || "";
   const status = post.status || "draft";
   const keyword = post.keyword || "";
-  const showMoreLink = true; // always show so user can open popup (view full post / image)
+  const showMoreLink = true;
   const approving = isApproving(post.id);
   const deleting = isDeleting(post.id);
   const isPublished =
@@ -497,144 +557,34 @@ function PostCard({ post, onMoreClick, onApprove, onDelete, isApproving, isDelet
 
   return (
     <article className="flex flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
-      {/* Card header - title full width, actions on second row */}
       <div className="border-b border-zinc-100 px-4 py-3">
         <div className="flex items-start gap-3">
           <div
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white"
-            style={{ backgroundColor: getChannelBg(channel) }}
+            style={{ backgroundColor: getChannelBg(activeChannel) }}
           >
-            <FontAwesomeIcon icon={getChannelIcon(channel)} className="h-5 w-5" />
+            <FontAwesomeIcon icon={getChannelIcon(activeChannel)} className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="break-words text-sm font-semibold leading-tight text-zinc-900">
-              {keyword || channel}
+              {keyword || "Post"}
             </p>
             <p className="mt-0.5 text-xs leading-tight text-zinc-500">
               {isPublished && post.updated_at
                 ? `Last modified: ${formatDate(post.updated_at)}`
-                : [channel, post.created_at && formatDate(post.created_at)].filter(Boolean).join(" · ")}
+                : [post.created_at && formatDate(post.created_at)].filter(Boolean).join(" · ")}
             </p>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-          {!isPublished && (
-            <button
-              type="button"
-              onClick={() => onApprove(post)}
-              disabled={approving}
-              className="flex cursor-pointer items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
-            >
-              <FontAwesomeIcon icon={faPaperPlane} className="h-3.5 w-3.5" />
-              {approving ? "Approving…" : "Approve"}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => onDelete(post)}
-            disabled={deleting}
-            className="flex cursor-pointer items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-red-50 hover:border-red-200 hover:text-red-700 disabled:opacity-60"
-            aria-label="Delete post"
-          >
-            <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
-            Delete
-          </button>
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-              isPublished ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-            }`}
-          >
-            {isPublished ? "Published" : status}
-          </span>
-        </div>
-      </div>
-
-      {/* Post content - max 5 lines then more... */}
-      <div className="flex-1 px-4 py-4">
-        <p className="line-clamp-5 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
-          {content || "No content."}
-        </p>
-        {showMoreLink && (
-          <button
-            type="button"
-            onClick={() => onMoreClick(post)}
-            className="mt-1 cursor-pointer text-sm font-medium text-[#0a66c2] hover:underline"
-          >
-            more...
-          </button>
-        )}
-      </div>
-
-      {/* Image - LinkedIn style: full width, constrained height, object-cover */}
-      {imageUrl && (
-        <div className="border-t border-zinc-100">
-          <div className="relative w-full overflow-hidden bg-zinc-100" style={{ maxHeight: "450px" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imageUrl}
-              alt=""
-              className="h-full w-full object-cover object-center"
-            />
+        <div className="mt-3 flex flex-nowrap items-center justify-between gap-3">
+          <div className="flex shrink-0 items-center gap-2">
+            {channels.length > 1 ? (
+              <ChannelPills channels={channels} activeChannel={activeChannel} onSelect={setActiveChannel} />
+            ) : (
+              <span className="w-0" aria-hidden />
+            )}
           </div>
-        </div>
-      )}
-    </article>
-  );
-}
-
-function PostModal({ post, onClose, onApprove, onDelete, isApproving, isDeleting }) {
-  useEffect(() => {
-    const handleEscape = (e) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleEscape);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", handleEscape);
-      document.body.style.overflow = "";
-    };
-  }, [onClose]);
-
-  if (!post) return null;
-  const content = post.ai_research_output || "";
-  const imageUrl = post.generated_image_url || null;
-  const channel = post.social_media_channel || "";
-  const keyword = post.keyword || "";
-  const status = post.status || "draft";
-  const approving = isApproving(post.id);
-  const deleting = isDeleting(post.id);
-  const isPublished =
-    status && (status.toLowerCase() === "published" || status.toLowerCase() === "posted");
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Post details"
-    >
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
-        {/* Modal header - title full width, actions on second row */}
-        <div className="border-b border-zinc-200 px-4 py-3">
-          <div className="flex items-start gap-3">
-            <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white"
-              style={{ backgroundColor: getChannelBg(channel) }}
-            >
-              <FontAwesomeIcon icon={getChannelIcon(channel)} className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="break-words text-sm font-semibold leading-tight text-zinc-900">
-                {keyword || channel}
-              </p>
-              <p className="mt-0.5 text-xs leading-tight text-zinc-500">
-                {isPublished && post.updated_at
-                  ? `Last modified: ${formatDate(post.updated_at)}`
-                  : [channel, post.created_at && formatDate(post.created_at)].filter(Boolean).join(" · ")}
-              </p>
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
             {!isPublished && (
               <button
                 type="button"
@@ -663,14 +613,154 @@ function PostModal({ post, onClose, onApprove, onDelete, isApproving, isDeleting
             >
               {isPublished ? "Published" : status}
             </span>
-            <button
-              type="button"
-              onClick={onClose}
-              className="cursor-pointer rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
-              aria-label="Close"
+          </div>
+        </div>
+      </div>
+
+      {/* Post content - max 5 lines then more... */}
+      <div className="flex-1 px-4 py-4">
+        <p className="line-clamp-5 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
+          {content || "No content."}
+        </p>
+        {showMoreLink && (
+          <button
+            type="button"
+            onClick={() => onMoreClick(post, activeChannel)}
+            className="mt-1 cursor-pointer text-sm font-medium text-[#0a66c2] hover:underline"
+          >
+            more...
+          </button>
+        )}
+      </div>
+
+      {/* Image - LinkedIn style: full width, constrained height, object-cover */}
+      {imageUrl && (
+        <div className="border-t border-zinc-100">
+          <div className="relative w-full overflow-hidden bg-zinc-100" style={{ maxHeight: "450px" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt=""
+              className="h-full w-full object-cover object-center"
+            />
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function PostModal({ post, initialChannel, onClose, onApprove, onDelete, isApproving, isDeleting }) {
+  const channels = post ? getPostChannels(post) : [];
+  const [activeChannel, setActiveChannel] = useState(initialChannel ?? channels[0] ?? "linkedin");
+
+  useEffect(() => {
+    const chs = post ? getPostChannels(post) : [];
+    const next =
+      initialChannel && chs.includes(initialChannel)
+        ? initialChannel
+        : (chs[0] ?? "linkedin");
+    setActiveChannel(next);
+  }, [post?.id, initialChannel]);
+
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleEscape);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  if (!post) return null;
+  const content = getPostContentForChannel(post, activeChannel) || "";
+  const imageUrl = post.generated_image_url || null;
+  const keyword = post.keyword || "";
+  const status = post.status || "draft";
+  const approving = isApproving(post.id);
+  const deleting = isDeleting(post.id);
+  const isPublished =
+    status && (status.toLowerCase() === "published" || status.toLowerCase() === "posted");
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Post details"
+    >
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+        <div className="border-b border-zinc-200 px-4 py-3">
+          <div className="flex items-start gap-3">
+            <div
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white"
+              style={{ backgroundColor: getChannelBg(activeChannel) }}
             >
-              <FontAwesomeIcon icon={faTimes} className="h-5 w-5" />
-            </button>
+              <FontAwesomeIcon icon={getChannelIcon(activeChannel)} className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="break-words text-sm font-semibold leading-tight text-zinc-900">
+                {keyword || "Post"}
+              </p>
+              <p className="mt-0.5 text-xs leading-tight text-zinc-500">
+                {isPublished && post.updated_at
+                  ? `Last modified: ${formatDate(post.updated_at)}`
+                  : [post.created_at && formatDate(post.created_at)].filter(Boolean).join(" · ")}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-nowrap items-center justify-between gap-3">
+            <div className="flex shrink-0 items-center gap-2">
+              {channels.length > 1 ? (
+                <>
+                  <span className="text-xs font-medium text-zinc-500">Version:</span>
+                  <ChannelPills channels={channels} activeChannel={activeChannel} onSelect={setActiveChannel} />
+                </>
+              ) : (
+                <span className="w-0" aria-hidden />
+              )}
+            </div>
+            <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
+              {!isPublished && (
+                <button
+                  type="button"
+                  onClick={() => onApprove(post)}
+                  disabled={approving}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  <FontAwesomeIcon icon={faPaperPlane} className="h-3.5 w-3.5" />
+                  {approving ? "Approving…" : "Approve"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onDelete(post)}
+                disabled={deleting}
+                className="flex cursor-pointer items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-red-50 hover:border-red-200 hover:text-red-700 disabled:opacity-60"
+                aria-label="Delete post"
+              >
+                <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
+                Delete
+              </button>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                  isPublished ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                }`}
+              >
+                {isPublished ? "Published" : status}
+              </span>
+              <button
+                type="button"
+                onClick={onClose}
+                className="cursor-pointer rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
+                aria-label="Close"
+              >
+                <FontAwesomeIcon icon={faTimes} className="h-5 w-5" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -707,6 +797,7 @@ function PostModal({ post, onClose, onApprove, onDelete, isApproving, isDeleting
 export default function PostsGrid({ posts: initialPosts }) {
   const [posts, setPosts] = useState(initialPosts);
   const [selectedPostId, setSelectedPostId] = useState(null);
+  const [selectedChannelForModal, setSelectedChannelForModal] = useState("linkedin");
   const [postToApprove, setPostToApprove] = useState(null);
   const [approvingId, setApprovingId] = useState(null);
   const [resultModal, setResultModal] = useState(null);
@@ -975,7 +1066,7 @@ export default function PostsGrid({ posts: initialPosts }) {
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3">
         {filteredPosts.length === 0 ? (
           <p className="col-span-full py-8 text-center text-sm text-zinc-500">
             {activeTab === "all"
@@ -992,7 +1083,10 @@ export default function PostsGrid({ posts: initialPosts }) {
               <PostCard
                 key={post.id}
                 post={post}
-                onMoreClick={(p) => setSelectedPostId(p?.id ?? null)}
+                onMoreClick={(p, channel) => {
+                setSelectedPostId(p?.id ?? null);
+                setSelectedChannelForModal(channel ?? "linkedin");
+              }}
                 onApprove={handleApproveClick}
                 onDelete={handleDeleteClick}
                 isApproving={isApproving}
@@ -1005,6 +1099,7 @@ export default function PostsGrid({ posts: initialPosts }) {
       {selectedPost && (
         <PostModal
           post={selectedPost}
+          initialChannel={selectedChannelForModal}
           onClose={() => setSelectedPostId(null)}
           onApprove={handleApproveClick}
           onDelete={handleDeleteClick}
