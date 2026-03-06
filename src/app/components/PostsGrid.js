@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLinkedinIn, faXTwitter, faInstagram } from "@fortawesome/free-brands-svg-icons";
-import { faTimes, faPaperPlane, faTrash, faPlus, faArrowsRotate } from "@fortawesome/free-solid-svg-icons";
+import { faTimes, faPaperPlane, faTrash, faPlus, faArrowsRotate, faPen, faImage } from "@fortawesome/free-solid-svg-icons";
 
 const APPROVE_WEBHOOK_URL = "https://n8n.indicrm.io/webhook/approve-post";
 const CREATE_POST_WEBHOOK_URL = "https://n8n.indicrm.io/webhook/social-media-post-create";
+const REGENERATE_IMAGE_WEBHOOK_URL = "https://n8n.indicrm.io/webhook/generate-image";
 
 const THEME_OPTIONS = [
   { value: "purple", label: "Purple" },
@@ -539,9 +540,10 @@ function ChannelPills({ channels, activeChannel, onSelect }) {
   );
 }
 
-function PostCard({ post, onMoreClick, onApprove, onDelete, isApproving, isDeleting }) {
+function PostCard({ post, onMoreClick, onApprove, onDelete, onRefreshPost, isApproving, isDeleting }) {
   const channels = getPostChannels(post);
   const [activeChannel, setActiveChannel] = useState(channels[0] ?? "linkedin");
+  const [refreshing, setRefreshing] = useState(false);
   useEffect(() => {
     if (channels.length && !channels.includes(activeChannel)) setActiveChannel(channels[0]);
   }, [channels.join(","), activeChannel]);
@@ -554,6 +556,16 @@ function PostCard({ post, onMoreClick, onApprove, onDelete, isApproving, isDelet
   const deleting = isDeleting(post.id);
   const isPublished =
     status && (status.toLowerCase() === "published" || status.toLowerCase() === "posted");
+
+  const handleRefresh = async () => {
+    if (!post?.id || !onRefreshPost || refreshing) return;
+    setRefreshing(true);
+    try {
+      await onRefreshPost(post.id);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <article className="flex flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
@@ -585,6 +597,15 @@ function PostCard({ post, onMoreClick, onApprove, onDelete, isApproving, isDelet
             )}
           </div>
           <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+              aria-label="Refresh post"
+            >
+              <FontAwesomeIcon icon={faArrowsRotate} className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            </button>
             {!isPublished && (
               <button
                 type="button"
@@ -650,9 +671,15 @@ function PostCard({ post, onMoreClick, onApprove, onDelete, isApproving, isDelet
   );
 }
 
-function PostModal({ post, initialChannel, onClose, onApprove, onDelete, isApproving, isDeleting }) {
+function PostModal({ post, initialChannel, onClose, onApprove, onDelete, onPostUpdated, onRefreshPost, isApproving, isDeleting }) {
   const channels = post ? getPostChannels(post) : [];
   const [activeChannel, setActiveChannel] = useState(initialChannel ?? channels[0] ?? "linkedin");
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editDraft, setEditDraft] = useState("");
+  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
+  const [imageGenerationInProgress, setImageGenerationInProgress] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     const chs = post ? getPostChannels(post) : [];
@@ -664,8 +691,72 @@ function PostModal({ post, initialChannel, onClose, onApprove, onDelete, isAppro
   }, [post?.id, initialChannel]);
 
   useEffect(() => {
+    if (isEditing && post) setEditDraft(getPostContentForChannel(post, activeChannel) ?? "");
+  }, [isEditing, activeChannel, post?.id]);
+
+  const startEdit = () => {
+    if (!post) return;
+    setEditDraft(getPostContentForChannel(post, activeChannel) ?? "");
+    setIsEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setIsEditing(false);
+  };
+
+  const handleConfirmRegenerateImage = async () => {
+    if (!post?.id) return;
+    setShowRegenerateConfirm(false);
+    try {
+      await fetch(REGENERATE_IMAGE_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordid: post.id }),
+      });
+      setImageGenerationInProgress(true);
+    } catch {
+      setImageGenerationInProgress(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (!post?.id || !onRefreshPost || refreshing) return;
+    setRefreshing(true);
+    try {
+      await onRefreshPost(post.id);
+      setImageGenerationInProgress(false);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!post?.id || saving) return;
+    setSaving(true);
+    try {
+      const body = { [`ai_research_output_${activeChannel}`]: editDraft };
+      const res = await fetch(`/api/posts/${post.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const updated = await res.json();
+      onPostUpdated?.(updated);
+      setIsEditing(false);
+    } catch {
+      // could show error toast
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useEffect(() => {
     const handleEscape = (e) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (isEditing) cancelEdit();
+        else onClose();
+      }
     };
     window.addEventListener("keydown", handleEscape);
     document.body.style.overflow = "hidden";
@@ -673,7 +764,7 @@ function PostModal({ post, initialChannel, onClose, onApprove, onDelete, isAppro
       window.removeEventListener("keydown", handleEscape);
       document.body.style.overflow = "";
     };
-  }, [onClose]);
+  }, [onClose, isEditing]);
 
   if (!post) return null;
   const content = getPostContentForChannel(post, activeChannel) || "";
@@ -686,32 +777,54 @@ function PostModal({ post, initialChannel, onClose, onApprove, onDelete, isAppro
     status && (status.toLowerCase() === "published" || status.toLowerCase() === "posted");
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Post details"
-    >
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
-        <div className="border-b border-zinc-200 px-4 py-3">
-          <div className="flex items-start gap-3">
-            <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white"
-              style={{ backgroundColor: getChannelBg(activeChannel) }}
-            >
-              <FontAwesomeIcon icon={getChannelIcon(activeChannel)} className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="break-words text-sm font-semibold leading-tight text-zinc-900">
-                {keyword || "Post"}
+    <>
+      {showRegenerateConfirm && (
+        <ConfirmModal
+          title="Regenerate image"
+          message="Are you sure you want to regenerate the image?"
+          onConfirm={handleConfirmRegenerateImage}
+          onCancel={() => setShowRegenerateConfirm(false)}
+        />
+      )}
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Post details"
+      >
+        <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+          <div className="border-b border-zinc-200 px-4 py-3">
+            {imageGenerationInProgress && (
+              <p className="mb-2 text-xs font-medium text-amber-700">
+                Image generation is in progress. Use the refresh button when ready.
               </p>
-              <p className="mt-0.5 text-xs leading-tight text-zinc-500">
-                {isPublished && post.updated_at
-                  ? `Last modified: ${formatDate(post.updated_at)}`
-                  : [post.created_at && formatDate(post.created_at)].filter(Boolean).join(" · ")}
-              </p>
+            )}
+            <div className="flex items-start gap-3">
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white"
+                style={{ backgroundColor: getChannelBg(activeChannel) }}
+              >
+                <FontAwesomeIcon icon={getChannelIcon(activeChannel)} className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="break-words text-sm font-semibold leading-tight text-zinc-900">
+                  {keyword || "Post"}
+                </p>
+                <p className="mt-0.5 text-xs leading-tight text-zinc-500">
+                  {isPublished && post.updated_at
+                    ? `Last modified: ${formatDate(post.updated_at)}`
+                    : [post.created_at && formatDate(post.created_at)].filter(Boolean).join(" · ")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="ml-auto shrink-0 rounded-full p-2 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                aria-label="Close"
+              >
+                <FontAwesomeIcon icon={faTimes} className="h-5 w-5" />
+              </button>
             </div>
-          </div>
           <div className="mt-3 flex flex-nowrap items-center justify-between gap-3">
             <div className="flex shrink-0 items-center gap-2">
               {channels.length > 1 ? (
@@ -724,7 +837,38 @@ function PostModal({ post, initialChannel, onClose, onApprove, onDelete, isAppro
               )}
             </div>
             <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
-              {!isPublished && (
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="flex cursor-pointer items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                aria-label="Refresh post"
+              >
+                <FontAwesomeIcon icon={faArrowsRotate} className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+              </button>
+              {!isEditing && !isPublished && (
+                <button
+                  type="button"
+                  onClick={() => setShowRegenerateConfirm(true)}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 hover:border-zinc-400"
+                  aria-label="Regenerate image"
+                >
+                  <FontAwesomeIcon icon={faImage} className="h-3.5 w-3.5" />
+                  Generate Image
+                </button>
+              )}
+              {!isEditing && !isPublished && (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 hover:border-zinc-400"
+                  aria-label="Edit content"
+                >
+                  <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" />
+                  Edit
+                </button>
+              )}
+              {!isPublished && !isEditing && (
                 <button
                   type="button"
                   onClick={() => onApprove(post)}
@@ -735,16 +879,18 @@ function PostModal({ post, initialChannel, onClose, onApprove, onDelete, isAppro
                   {approving ? "Approving…" : "Approve"}
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => onDelete(post)}
-                disabled={deleting}
-                className="flex cursor-pointer items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-red-50 hover:border-red-200 hover:text-red-700 disabled:opacity-60"
-                aria-label="Delete post"
-              >
-                <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
-                Delete
-              </button>
+              {!isEditing && (
+                <button
+                  type="button"
+                  onClick={() => onDelete(post)}
+                  disabled={deleting}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-red-50 hover:border-red-200 hover:text-red-700 disabled:opacity-60"
+                  aria-label="Delete post"
+                >
+                  <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
+                  Delete
+                </button>
+              )}
               <span
                 className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                   isPublished ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
@@ -752,45 +898,71 @@ function PostModal({ post, initialChannel, onClose, onApprove, onDelete, isAppro
               >
                 {isPublished ? "Published" : status}
               </span>
-              <button
-                type="button"
-                onClick={onClose}
-                className="cursor-pointer rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
-                aria-label="Close"
-              >
-                <FontAwesomeIcon icon={faTimes} className="h-5 w-5" />
-              </button>
             </div>
           </div>
         </div>
 
-        {/* Scrollable body: full text then image */}
+        {/* Scrollable body: inline edit or view content + image */}
         <div className="flex-1 overflow-y-auto">
-          <div className="px-4 py-4">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
-              {content || "No content."}
-            </p>
-          </div>
-          {imageUrl && (
-            <div className="border-t border-zinc-100">
-              <a
-                href="https://www.ibirdsservices.com/platforms/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="relative block w-full cursor-pointer overflow-hidden bg-zinc-100"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imageUrl}
-                  alt=""
-                  className="max-w-full w-full h-auto object-contain"
-                />
-              </a>
+          {isEditing ? (
+            <div className="px-4 py-4">
+              <textarea
+                value={editDraft}
+                onChange={(e) => setEditDraft(e.target.value)}
+                rows={12}
+                className="w-full resize-y whitespace-pre-wrap rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm leading-relaxed text-zinc-800 outline-none focus:border-[#0a66c2] focus:ring-1 focus:ring-[#0a66c2]"
+                placeholder="Post content…"
+                aria-label="Edit post content"
+              />
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={saveEdit}
+                  disabled={saving}
+                  className="cursor-pointer rounded-md bg-[#0a66c2] px-4 py-2 text-sm font-medium text-white hover:bg-[#0a66c2]/90 disabled:opacity-60"
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  disabled={saving}
+                  className="cursor-pointer rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
+          ) : (
+            <>
+              <div className="px-4 py-4">
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
+                  {content || "No content."}
+                </p>
+              </div>
+              {imageUrl && (
+                <div className="border-t border-zinc-100">
+                  <a
+                    href="https://www.ibirdsservices.com/platforms/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="relative block w-full cursor-pointer overflow-hidden bg-zinc-100"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={imageUrl}
+                      alt=""
+                      className="max-w-full w-full h-auto object-contain"
+                    />
+                  </a>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
     </div>
+    </>
   );
 }
 
@@ -842,6 +1014,23 @@ export default function PostsGrid({ posts: initialPosts }) {
   const handleDeleteClick = (post) => {
     if (!post?.id) return;
     setPostToDelete(post);
+  };
+
+  const handlePostUpdated = (updatedPost) => {
+    if (!updatedPost?.id) return;
+    setPosts((prev) => prev.map((p) => (p.id === updatedPost.id ? updatedPost : p)));
+  };
+
+  const handleRefreshPost = async (postId) => {
+    if (!postId) return;
+    try {
+      const res = await fetch(`/api/posts/${postId}`);
+      if (!res.ok) return;
+      const updated = await res.json();
+      setPosts((prev) => prev.map((p) => (p.id === postId ? updated : p)));
+    } catch {
+      // ignore
+    }
   };
 
   const handleConfirmDelete = async () => {
@@ -1084,11 +1273,12 @@ export default function PostsGrid({ posts: initialPosts }) {
                 key={post.id}
                 post={post}
                 onMoreClick={(p, channel) => {
-                setSelectedPostId(p?.id ?? null);
-                setSelectedChannelForModal(channel ?? "linkedin");
-              }}
+                  setSelectedPostId(p?.id ?? null);
+                  setSelectedChannelForModal(channel ?? "linkedin");
+                }}
                 onApprove={handleApproveClick}
                 onDelete={handleDeleteClick}
+                onRefreshPost={handleRefreshPost}
                 isApproving={isApproving}
                 isDeleting={isDeleting}
               />
@@ -1103,6 +1293,8 @@ export default function PostsGrid({ posts: initialPosts }) {
           onClose={() => setSelectedPostId(null)}
           onApprove={handleApproveClick}
           onDelete={handleDeleteClick}
+          onPostUpdated={handlePostUpdated}
+          onRefreshPost={handleRefreshPost}
           isApproving={isApproving}
           isDeleting={isDeleting}
         />

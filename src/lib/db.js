@@ -46,6 +46,30 @@ export async function getSocialMediaPostById(id) {
   }
 }
 
+export async function updateSocialMediaPostContent(id, data) {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE public.social_media_posts
+       SET ai_research_output_linkedin = COALESCE($2, ai_research_output_linkedin),
+           ai_research_output_x = COALESCE($3, ai_research_output_x),
+           ai_research_output_instagram = COALESCE($4, ai_research_output_instagram),
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, ai_research_output_linkedin, ai_research_output_x, ai_research_output_instagram, updated_at`,
+      [
+        id,
+        data.ai_research_output_linkedin ?? null,
+        data.ai_research_output_x ?? null,
+        data.ai_research_output_instagram ?? null,
+      ]
+    );
+    return res.rows[0] ?? null;
+  } finally {
+    client.release();
+  }
+}
+
 export async function deleteSocialMediaPost(id) {
   const client = await pool.connect();
   try {
